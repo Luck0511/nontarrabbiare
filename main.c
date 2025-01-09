@@ -1,119 +1,125 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <time.h>
 
-#define PORT 4444
-#define MAX_CLIENTS 4
+#define GRID_SIZE 20
+#define NUM_PLAYERS 4
+#define MAX_PEDINE 4
 
-int client_sockets[MAX_CLIENTS];
-int client_count = 0;
-int current_turn = 0;  // Indica il giocatore che deve fare il prossimo lancio
-
-// Funzione per inviare la griglia a tutti i client
-void broadcast_grid(char *grid) {
-    for (int i = 0; i < client_count; i++) {
-        send(client_sockets[i], grid, strlen(grid), 0);
+void stampaGriglia(int posizioni[NUM_PLAYERS][MAX_PEDINE], int pedine_attive[NUM_PLAYERS], int fine) {
+    char simboli[NUM_PLAYERS] = {'R', 'Y', 'G', 'B'};
+    for (int i = 0; i < fine; i++) {
+        for (int j = 0; j < NUM_PLAYERS; j++) {
+            int occupato = 0;
+            for (int k = 0; k < pedine_attive[j]; k++) {
+                if (posizioni[j][k] == i) {
+                    printf("[%c%d]", simboli[j], k + 1);
+                    occupato = 1;
+                    break;
+                }
+            }
+            if (!occupato) {
+                printf("[ ]");
+            }
+        }
+        printf("\n");
     }
+    printf("\n");
 }
 
-// Funzione per lanciare i dadi
-int roll_dice() {
-    return rand() % 6 + 1;  // Ritorna un numero tra 1 e 6
-}
-
-// Funzione per inviare il messaggio di avvio
-void start_game() {
-    char start_message[] = "Il gioco è iniziato! Prepara i dadi!\n";
-    for (int i = 0; i < client_count; i++) {
-        send(client_sockets[i], start_message, strlen(start_message), 0);
-    }
-
-    // Invio della griglia iniziale (un esempio semplice)
-    char grid[] = "Griglia di gioco: [ ] [ ] [ ] [ ] [ ]\n";
-    broadcast_grid(grid);
+int scegliPedina(int pedine_attive) {
+    int scelta;
+    printf("Scegli quale pedina muovere (1-%d): ", pedine_attive);
+    scanf("%d", &scelta);
+    return scelta - 1; // Indice della pedina
 }
 
 int main() {
-    int server_socket, client_socket;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t client_len;
-    char buffer[2048];
+    char simboli[NUM_PLAYERS] = {'R', 'Y', 'G', 'B'};
+    int posizioni[NUM_PLAYERS][MAX_PEDINE] = {{0}};
+    int pedine_attive[NUM_PLAYERS] = {1, 1, 1, 1};
+    int pedine_arrivate[NUM_PLAYERS] = {0};
+    int fine = GRID_SIZE;
+    int turno = 0;
 
-    // Crea il socket del server
-    server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
-    }
+    srand(time(NULL));
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
+    printf("Inizio del gioco!\n\n");
 
-    // Associa l'indirizzo al socket
-    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Bind failed");
-        exit(EXIT_FAILURE);
-    }
+    while (1) {
+        printf("\nTurno del giocatore %c:\n", simboli[turno]);
 
-    // Ascolta per connessioni in entrata
-    if (listen(server_socket, MAX_CLIENTS) < 0) {
-        perror("Listen failed");
-        exit(EXIT_FAILURE);
-    }
+        // Lancia il dado
+        int dado = rand() % 6 + 1;
+        printf("Il dado mostra: %d\n", dado);
 
-    printf("Server listening on port %d...\n", PORT);
+        if (dado == 6 && pedine_attive[turno] < MAX_PEDINE) {
+            printf("Vuoi aggiungere una nuova pedina (1) o muovere una pedina esistente (2)? ");
+            int scelta;
+            scanf("%d", &scelta);
 
-    // Ciclo per accettare i client
-    while (client_count < MAX_CLIENTS) {
-        client_len = sizeof(client_addr);
-        client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_len);
-        if (client_socket < 0) {
-            perror("Accept failed");
+            if (scelta == 1) {
+                posizioni[turno][pedine_attive[turno]] = 0;
+                pedine_attive[turno]++;
+                printf("Nuova pedina aggiunta per il giocatore %c.\n", simboli[turno]);
+                stampaGriglia(posizioni, pedine_attive, fine);
+                continue;
+            }
+        }
+
+        // Scegli una pedina da muovere
+        int pedina_da_muovere = scegliPedina(pedine_attive[turno]);
+
+        // Calcola la nuova posizione
+        int nuovaPosizione = posizioni[turno][pedina_da_muovere] + dado;
+        if (nuovaPosizione >= fine) {
+            printf("La pedina %d del giocatore %c ha raggiunto il traguardo!\n", pedina_da_muovere + 1, simboli[turno]);
+            pedine_arrivate[turno]++;
+            posizioni[turno][pedina_da_muovere] = fine - 1; // Rimane sul traguardo
+
+            if (pedine_arrivate[turno] == MAX_PEDINE) {
+                printf("Il giocatore %c ha vinto portando tutte le sue pedine al traguardo!\n", simboli[turno]);
+                break;
+            }
+
+            stampaGriglia(posizioni, pedine_attive, fine);
+            turno = (turno + 1) % NUM_PLAYERS; // Passa al turno successivo
             continue;
         }
 
-        // Aggiungi il client alla lista
-        client_sockets[client_count] = client_socket;
-        printf("giocatore %d connesso (Socket %d)\n", client_count + 1, client_socket);
-
-        // Incrementa il numero di client connessi
-        client_count++;
-
-        // Invia un messaggio di benvenuto al client
-        char welcome_message[] = "Sei connesso al server! Aspetta che il gioco inizi...\n";
-        send(client_socket, welcome_message, strlen(welcome_message), 0);
-
-        // Quando tutti i client sono connessi, inizia il gioco
-        if (client_count == MAX_CLIENTS) {
-            start_game();  // Inizia il gioco
-        }
-    }
-
-    // Gestione dei turni e del lancio dei dadi (da aggiungere qui)
-    while (1) {
-        // Logica per il turno corrente
-        for (int i = 0; i < client_count; i++) {
-            if (i == current_turn) {
-                // Questo client deve lanciare i dadi
-                int dice_result = roll_dice();
-                snprintf(buffer, sizeof(buffer), "E' il tuo turno! Hai lanciato il dado: %d\n", dice_result);
-                send(client_sockets[i], buffer, strlen(buffer), 0);
-
-                // Aggiorna la griglia (come esempio semplice, aggiungi il numero dei dadi)
-                char updated_grid[] = "Griglia aggiornata: [1] [2] [3] [4] [5]\n";
-                broadcast_grid(updated_grid);
-
-                // Passa al prossimo giocatore
-                current_turn = (current_turn + 1) % client_count;
-                break;
+        // Controlla se un'altra pedina è già nella nuova posizione
+        int collisione = 0;
+        for (int i = 0; i < NUM_PLAYERS; i++) {
+            for (int k = 0; k < pedine_attive[i]; k++) {
+                if (i != turno || k != pedina_da_muovere) {
+                    if (posizioni[i][k] == nuovaPosizione) {
+                        collisione = 1;
+                        break;
+                    }
+                }
             }
+            if (collisione) break;
         }
-        sleep(1);  // Un breve ritardo tra i turni
+
+        if (collisione) {
+            printf("Collisione! La pedina %d del giocatore %c torna all'inizio.\n", pedina_da_muovere + 1, simboli[turno]);
+            posizioni[turno][pedina_da_muovere] = 0;
+        } else {
+            posizioni[turno][pedina_da_muovere] = nuovaPosizione;
+            printf("La pedina %d del giocatore %c si sposta alla posizione %d.\n", pedina_da_muovere + 1, simboli[turno], nuovaPosizione);
+        }
+
+        stampaGriglia(posizioni, pedine_attive, fine);
+
+        printf("Attendere 5 secondi per il prossimo turno...\n");
+        for (int t = 5; t > 0; t--) {
+            fflush(stdout);
+            sleep(1);
+        }
+        printf("\n");
+
+        turno = (turno + 1) % NUM_PLAYERS;
     }
 
-    close(server_socket);
     return 0;
 }
