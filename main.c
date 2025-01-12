@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define PORT 1235
+#define PORT 1234
 #define MAX_CLIENTS 4
 
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -16,7 +16,7 @@ int client_sockets[MAX_CLIENTS];
 int client_count = 0;
 int current_turn = 0;  // Indica il giocatore che deve fare il prossimo lancio
 
-// Error function to handle errors (must pass an "msg" parameter)(by Luca)
+// Error function to handle errors (by Luca)
 void error(const char *msg)
 {
     perror(msg);
@@ -28,8 +28,7 @@ void error(const char *msg)
 void add_client(int client_socket)
 {
     pthread_mutex_lock(&clients_mutex);
-    if (client_count < MAX_CLIENTS)
-    {
+    if (client_count < MAX_CLIENTS){
         client_sockets[client_count] = client_socket;
         client_count++;
     }
@@ -41,25 +40,28 @@ void add_client(int client_socket)
 void remove_client(int client_socket)
 {
     pthread_mutex_lock(&clients_mutex);
+
     for (int i = 0; i < client_count; i++)
     {
         if (client_sockets[i] == client_socket)
         {
-            client_sockets[i] = client_sockets[client_count - 1];
+            client_sockets[i] = client_sockets[client_count - 1]; // Replace with the last socket
+            client_sockets[client_count - 1] = -1;               // Clear the last slot
             client_count--;
             break;
         }
     }
+
     pthread_mutex_unlock(&clients_mutex);
 }
+
 
 // Broadcast a notification to all clients (by Luca)
 // Sends a message to all connected clients
 void broadcastNotif(const char *message)
 {
     pthread_mutex_lock(&clients_mutex);
-    for (int i = 0; i < client_count; i++)
-    {
+    for (int i = 0; i < client_count; i++){
         write(client_sockets[i], message, strlen(message));
         write(client_sockets[i], "\n", 1);
     }
@@ -89,13 +91,11 @@ void readingloop(int client_socket)
     {
         bzero(buffer, 256);
         int n = read(client_socket, buffer, 255);
-        if (n <= 0)
-        {
-            pthread_mutex_lock(&clients_mutex);
+        if (n <= 0){
             printf("Client %d disconnected\n", client_socket);
             snprintf(buffer, sizeof(buffer), "Giocatore %d disconnesso.", client_socket);
             broadcastNotif(buffer);
-            pthread_mutex_unlock(&clients_mutex);
+            remove_client(client_socket);
             break;
         }
         buffer[strcspn(buffer, "\n")] = 0;
@@ -116,8 +116,7 @@ void *clientThread(void *arg)
     free(arg);
 
     pthread_mutex_lock(&clients_mutex);
-    if (client_count >= MAX_CLIENTS)
-    {
+    if (client_count >= MAX_CLIENTS){
         pthread_mutex_unlock(&clients_mutex);
         char full_message[] = "Connessione rifiutata: lobby piena\n";
         send(client_socket, full_message, strlen(full_message), 0);
@@ -137,11 +136,10 @@ void *clientThread(void *arg)
     broadcastNotif(notif_message);
 
     // Start the game when the maximum number of clients connect
-    if (client_count == MAX_CLIENTS)
-    {
+    if (client_count == MAX_CLIENTS){
         start_game();
     }
-
+    //start readingloop() to read client messages
     readingloop(client_socket);
 
     return NULL;
@@ -159,8 +157,7 @@ void acceptloop(int server_socket)
         int *client_socket = malloc(sizeof(int));
         *client_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
 
-        if (*client_socket < 0)
-        {
+        if (*client_socket < 0){
             free(client_socket);
             error("ERROR on accept");
         }
@@ -168,14 +165,6 @@ void acceptloop(int server_socket)
         pthread_t clTh;
         pthread_create(&clTh, NULL, clientThread, client_socket);
         pthread_detach(clTh);
-
-        pthread_mutex_lock(&clients_mutex);
-        if (client_count == MAX_CLIENTS)
-        {
-            pthread_mutex_unlock(&clients_mutex);
-            break;
-        }
-        pthread_mutex_unlock(&clients_mutex);
     }
 }
 
@@ -186,8 +175,7 @@ int main()
 
     // Create a socket (by Gabri)
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket < 0)
-    {
+    if (server_socket < 0){
         perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
@@ -199,8 +187,7 @@ int main()
     server_addr.sin_port = htons(PORT);
 
     // Bind the socket to the port (by Gabri)
-    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-    {
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0){
         perror("Bind failed");
         exit(EXIT_FAILURE);
     }
